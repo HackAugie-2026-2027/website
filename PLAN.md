@@ -19,6 +19,8 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | Sign-up | A form on the site that writes to a GCP database (see §4) |
 | Database | **Cloud SQL for PostgreSQL** (SQL) |
 | Email | **Resend** free tier (3,000/month, 100/day), sending from the club domain. Decision emails go out in daily batches |
+| Team inbox | **Cloudflare Email Routing** (free): `hello@` etc. forward to organizers' inboxes; replies sent as `hello@` through Gmail "Send mail as" using Resend SMTP |
+| Domain / DNS | Registered at or moved to **Cloudflare** (needed for Email Routing). Name ❓ |
 | Repo/org admin | The project lead controls the GitHub org |
 
 ### Key dates (from the HackAugie 2027 Timeline spreadsheet; weeks start on Sunday)
@@ -204,10 +206,10 @@ The 100/day limit matters on decision day. The admin app sends decisions in batc
 
 **2. A team inbox** (e.g. `hello@` / `team@` on the domain, for sponsors and questions)
 
-- **Cloudflare Email Routing** or **ImprovMX**: free forwarding to organizers' existing inboxes.
+- **Cloudflare Email Routing** *(chosen)*: free forwarding to organizers' existing inboxes. Requires the domain's DNS to be on Cloudflare.
 - **Zoho Mail** (free plan for a few users) or **Google Workspace** (~$7/user/month): a real shared mailbox.
 
-**Domain setup:** Send automated mail from a subdomain (e.g. `mail.hackaugie.<tld>`) with `noreply@` as the sender and `hello@` as the reply-to. Add SPF, DKIM and DMARC DNS records, which the provider gives you; university mail filters are strict without them. Register the domain at Cloudflare Registrar or Porkbun (about $10–15/year for `.com`).
+**Domain setup:** Send automated mail from a subdomain (e.g. `mail.hackaugie.<tld>`) with `noreply@` as the sender and `hello@` as the reply-to. Add SPF, DKIM and DMARC DNS records, which the provider gives you; university mail filters are strict without them. Register the domain at **Cloudflare Registrar** (at-cost, about $10–15/year for `.com`), so DNS, email forwarding and the Resend records live in one place.
 
 ### Other integrations
 - **Email updates:** Mailchimp / Buttondown free tier, or emails sent from the application database.
@@ -262,7 +264,7 @@ website/
 1. **Google credit:** Request submitted? When is a decision expected? Once granted: amount, expiry date, billing account, excluded services.
 2. **GCP owners:** Who besides the project lead gets owner access to the GCP project?
 3. **Domain name:** Which domain, and who will register it? This blocks email setup.
-4. **Team inbox:** Free forwarding (Cloudflare Email Routing, recommended) or real mailboxes (Zoho / Augustana IT)?
+4. **Inbox addresses:** Which addresses (`hello@`, `sponsors@`, …) and which organizers each forwards to?
 5. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
 6. Age minimum (18+, or are minors allowed with a waiver?).
 7. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.

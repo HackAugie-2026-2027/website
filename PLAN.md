@@ -7,7 +7,7 @@ The site has two jobs:
 
 Everything below follows from those two jobs. Sections marked **❓ Decision** need input from the organizing team.
 
-## 0. Decisions so far (updated 2026-11-18)
+## 0. Decisions so far (updated 2026-11-17)
 
 | Topic | Decision |
 |---|---|

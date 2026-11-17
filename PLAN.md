@@ -18,6 +18,7 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | Hosting | **Cloud Run** runs the site and its server code (see §4) |
 | Sign-up | A form on the site that writes to a GCP database (see §4) |
 | Database | **Cloud SQL for PostgreSQL** (SQL) |
+| Email | **Resend** free tier (3,000/month, 100/day), sending from the club domain. Decision emails go out in daily batches |
 | Repo/org admin | The project lead controls the GitHub org |
 
 ### Key dates (from the HackAugie 2027 Timeline spreadsheet; weeks start on Sunday)
@@ -136,7 +137,7 @@ Resend (or similar) ─ confirmation + decision emails
 | PR previews | Cloud Run **revision tags** | Each PR is deployed as a tagged revision that gets its own URL and no live traffic |
 | Custom domain + CDN | **Firebase Hosting** rewrite to Cloud Run *(recommended)*, or Cloud Run domain mapping | Firebase Hosting gives free SSL and caches the static pages |
 | Secrets | **Secret Manager** | Email API key; never committed to the repo |
-| Email | **Resend** *(recommended)*, sending from the club's own domain | GCP has no built-in transactional email service. See §4b |
+| Email | **Resend** (decided), sending from the club's own domain | GCP has no built-in transactional email service. See §4b |
 | Cost safety | **Billing budget alerts** | Alert well below the credit amount |
 
 **Estimated cost:** about $15–30/month, most of it the Cloud SQL instance, which runs around the clock. The Google credit covers it. Stop or delete the instance after the May cleanup so it doesn't keep using credit.
@@ -193,13 +194,13 @@ Two separate needs:
 
 | Provider | Free tier | Paid | Notes |
 |---|---|---|---|
-| **Resend** *(recommended)* | 3,000/month, **100/day** | ~$20/month | Simple API, good Node/Astro support, easy domain setup |
+| **Resend** *(chosen)* | 3,000/month, **100/day** | ~$20/month | Simple API, good Node/Astro support, easy domain setup |
 | Postmark | 100/month (testing) | ~$15/month | Best deliverability; account approval required |
 | Brevo | 300/day | Paid plans | Also does newsletters |
 | Mailgun | ~100/day | Paid plans | Mature, more complex |
 | Amazon SES | Pay per use (~$0.10/1,000) | — | Cheapest, but it's AWS |
 
-The 100/day limit matters on decision day. Either pay for one month of Resend around Feb 20, or send decisions in batches over several days. The `email_log` table makes batching safe.
+The 100/day limit matters on decision day. The admin app sends decisions in batches of up to 100/day, and the `email_log` table prevents duplicates. If a faster send is needed, pay for one month of Resend (~$20) around Feb 20.
 
 **2. A team inbox** (e.g. `hello@` / `team@` on the domain, for sponsors and questions)
 
@@ -261,7 +262,7 @@ website/
 1. **Google credit:** Request submitted? When is a decision expected? Once granted: amount, expiry date, billing account, excluded services.
 2. **GCP owners:** Who besides the project lead gets owner access to the GCP project?
 3. **Domain name:** Which domain, and who will register it? This blocks email setup.
-4. **Email provider:** Resend (recommended) or another? Team inbox: forwarding or real mailboxes?
+4. **Team inbox:** Free forwarding (Cloudflare Email Routing, recommended) or real mailboxes (Zoho / Augustana IT)?
 5. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
 6. Age minimum (18+, or are minors allowed with a waiver?).
 7. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.

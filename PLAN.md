@@ -17,6 +17,7 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | Cloud | **Google Cloud (GCP)**, funded by a dedicated credit grant from Google |
 | Hosting | **Cloud Run** runs the site and its server code (see §4) |
 | Sign-up | A form on the site that writes to a GCP database (see §4) |
+| Database | **Cloud SQL for PostgreSQL** (SQL) |
 | Repo/org admin | The project lead controls the GitHub org |
 
 ### Key dates (from the HackAugie 2027 Timeline spreadsheet; weeks start on Sunday)
@@ -116,11 +117,11 @@ Open to other schools, no cap, no waitlist (decided). ❓ **Decision:** Is there
 GitHub (main / PRs)
    │  GitHub Actions: build container → Artifact Registry → deploy
    ▼                 (keyless auth via Workload Identity Federation)
-Cloud Run "web" ──── public site + POST /api/apply ──► Firestore (applications)
-   │                                                    ▲
-   │ custom domain (Firebase Hosting rewrite            │
-   │  or Cloud Run domain mapping)                       │
-Cloud Run "admin" ── behind Identity-Aware Proxy ───────┘
+Cloud Run "web" ──── public site + POST /api/apply ──► Cloud SQL PostgreSQL
+   │                                                       ▲
+   │ custom domain (Firebase Hosting rewrite               │
+   │  or Cloud Run domain mapping)                         │
+Cloud Run "admin" ── behind Identity-Aware Proxy ──────────┘
                      (organizer Google accounts only)
 Secret Manager ───── email-provider API key
 Resend (or similar) ─ confirmation + decision emails
@@ -130,7 +131,7 @@ Resend (or similar) ─ confirmation + decision emails
 |---|---|---|
 | Site + form API | **Cloud Run** (`web` service) | One container. Scales to zero when idle. Can raise the minimum to 1 instance during the application window to avoid slow first loads |
 | Organizer review | **Cloud Run** (`admin` service) + **Identity-Aware Proxy** | IAP limits access to a list of organizer Google accounts, so the app needs no login code. Lists, filters, sets accepted/rejected, exports CSV |
-| Database | **Firestore** *(recommended)* or **Cloud SQL PostgreSQL** | Firestore: no server to run, fine for hundreds of records. Cloud SQL: SQL queries, but about $10+/month and more setup. The credit covers either |
+| Database | **Cloud SQL for PostgreSQL** | Smallest instance with automated backups and deletion protection. Cloud Run connects through its built-in Cloud SQL connection; no IP allowlists. See §4a |
 | Container images | **Artifact Registry** | |
 | PR previews | Cloud Run **revision tags** | Each PR is deployed as a tagged revision that gets its own URL and no live traffic |
 | Custom domain + CDN | **Firebase Hosting** rewrite to Cloud Run *(recommended)*, or Cloud Run domain mapping | Firebase Hosting gives free SSL and caches the static pages |
@@ -138,13 +139,49 @@ Resend (or similar) ─ confirmation + decision emails
 | Email | **Resend** (or Mailgun) | GCP has no built-in transactional email service |
 | Cost safety | **Billing budget alerts** | Alert well below the credit amount |
 
-**Estimated cost:** about $0–15/month with Firestore, about $15–30/month with Cloud SQL or an always-on instance. The Google credit covers it.
+**Estimated cost:** about $15–30/month, most of it the Cloud SQL instance, which runs around the clock. The Google credit covers it. Stop or delete the instance after the May cleanup so it doesn't keep using credit.
 
 **Credit checklist:** Confirm the amount, the **expiry date** (it must cover the event in April and the cleanup in May), which billing account it's applied to (a club-owned one, with at least two organizers as owners), and whether it excludes any services.
 
 **Fallback:** If the form isn't ready by Jan 3, `/apply` can link to a Tally form temporarily.
 
 **Possible later addition:** "Log in with MLH" (MyMLH), so applicants sign in with their MLH account, which pre-fills their profile. It requires MLH OAuth approval.
+
+### 4a. Database details (Cloud SQL for PostgreSQL)
+
+- **Why PostgreSQL over MySQL:** both work on Cloud SQL. Postgres has better support for constraints, enums and JSON, and Astro/Node libraries default to it.
+- **Instance:** the smallest shared-core instance is enough for hundreds of applications. Turn on automated daily backups, point-in-time recovery and deletion protection.
+- **Connecting from Cloud Run:** use the built-in Cloud SQL connection (Unix socket) and keep the database password in Secret Manager. IAM database login is possible later.
+- **Connection limits:** small instances allow few connections. Cap Cloud Run at about 5 instances and give each a pool of 2–5 connections.
+- **Schema and migrations:** use [Drizzle ORM](https://orm.drizzle.team), which is TypeScript, close to plain SQL, and keeps migrations in the repo. Migrations run as a step in the deploy workflow, before the new version goes live.
+- **Environments:** production and preview use **separate databases** on the same instance (`hackaugie` and `hackaugie_preview`). PR previews must never touch real applicant data.
+- **Local development:** Postgres in Docker (`docker compose up`).
+- **Ad-hoc queries:** organizers with access can query directly in Cloud SQL Studio in the console. The `admin` app remains the normal review tool.
+
+**Draft `applications` table**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid, primary key | |
+| `created_at`, `updated_at` | timestamptz | |
+| `first_name`, `last_name` | text | |
+| `email` | text, unique, case-insensitive | One application per email |
+| `school`, `major` | text | |
+| `level_of_study` | enum | MLH list (high school, undergraduate, graduate, …) |
+| `graduation_year` | int | |
+| `country` | text | MLH requires country of residence |
+| `is_18_or_older` | boolean | Pending the age-policy decision |
+| `experience` | enum | none / beginner / intermediate / advanced |
+| `shirt_size` | enum | |
+| `dietary`, `accessibility` | text, nullable | |
+| `has_team`, `teammates` | boolean, text | |
+| `goals`, `heard_about`, `links` | text, nullable | |
+| `coc_agreed_at`, `mlh_share_agreed_at` | timestamptz | When each required agreement was given |
+| `mlh_email_opt_in`, `media_release` | boolean | |
+| `status` | enum | `submitted` → `accepted` / `rejected` / `withdrawn`; later `checked_in` |
+| `reviewed_by`, `reviewed_at`, `review_notes` | text, timestamptz, text | Organizer from IAP identity |
+
+A small `email_log` table records each confirmation or decision email sent, so nobody gets emailed twice.
 
 ### Other integrations
 - **Email updates:** Mailchimp / Buttondown free tier, or emails sent from the application database.
@@ -189,7 +226,7 @@ website/
 | M0 | Nov 22 | Decisions + GCP setup | Credit applied to a club billing account, GCP project created, date/venue, logo |
 | M1 | Nov 29 | Skeleton | Astro project, layout, nav/footer, Dockerfile, CI, deploy to Cloud Run, PR previews |
 | M2 | Dec 13 | Content | Home, About, FAQ, Code of Conduct, Sponsors, Get Involved (placeholder copy is fine) |
-| M3 | Dec 27 | Application form | `/apply` → Firestore, confirmation email, `admin` service behind IAP, CSV export |
+| M3 | Dec 27 | Application form | `/apply` → Cloud SQL, confirmation email, `admin` service behind IAP, CSV export |
 | M4 | **Jan 3** | **Launch** | Site live on the real domain, applications open |
 | M5 | Mar | Pre-event | Schedule, tracks/prizes, accepted-hacker info page, Discord |
 | M6 | Apr 25 | Event & after | Live schedule, judging info, then winners/gallery and recap |
@@ -197,7 +234,6 @@ website/
 ## 8. Open questions for the team
 
 1. **Google credit:** Amount, expiry date, which billing account it's on, and any excluded services.
-2. **Database:** Firestore (recommended) or Cloud SQL PostgreSQL?
 3. **Application vs. registration:** The timeline has an applicant review step. Is that a real accept/reject decision, or just a check?
 4. **Email provider:** Resend (recommended) or another?
 5. **GCP owners:** Who besides the project lead gets owner access to the GCP project?

@@ -7,15 +7,16 @@ The site has two jobs:
 
 Everything below follows from those two jobs. Sections marked **❓ Decision** need input from the organizing team.
 
-## 0. Decisions so far (updated 2026-11-08)
+## 0. Decisions so far (updated 2026-11-17)
 
 | Topic | Decision |
 |---|---|
 | Eligibility | Open to students from other schools, not only Augustana |
 | Capacity | No cap and no waitlist |
 | MLH | MLH member event. The MLH Code of Conduct, MLH data-sharing checkboxes and MLH trust badge are required |
-| Hosting | **Not** settled. GitHub Pages is not assumed (see §4) |
-| Sign-up | Not settled. It leans toward a form on the site that writes to a database (see §4) |
+| Cloud | **Google Cloud (GCP)**, funded by a dedicated credit grant from Google |
+| Hosting | **Cloud Run** runs the site and its server code (see §4) |
+| Sign-up | A form on the site that writes to a GCP database (see §4) |
 | Repo/org admin | The project lead controls the GitHub org |
 
 ### Key dates (from the HackAugie 2027 Timeline spreadsheet; weeks start on Sunday)
@@ -105,24 +106,45 @@ Open to other schools, no cap, no waitlist (decided). ❓ **Decision:** Is there
 
 ### Recommendation
 
-- **Site:** [Astro](https://astro.build), a static site generator. Content lives in Markdown (FAQ, schedule, about), so non-developers on the team can edit it through GitHub's web editor. It produces fast, plain HTML.
+- **Site:** [Astro](https://astro.build) with the Node adapter. Content pages are pre-built as plain HTML; only the form endpoint and `/admin` run server code. Content lives in Markdown (FAQ, schedule, about), so non-developers on the team can edit it through GitHub's web editor.
 - **Styling:** Tailwind CSS, or plain CSS with a small set of design tokens (colors, fonts) using Augustana-adjacent branding.
-- **Hosting:** ❓ Not decided (GitHub Pages is not assumed). Because sign-up will probably need a server and a database, a host that runs serverless functions fits better than GitHub Pages:
-  - **Vercel** or **Netlify**: free tier, a preview link for every PR, serverless functions for the form, and first-class Astro support. *Recommended.*
-  - **Cloudflare Pages**: the same benefits, plus its own database (D1) if the team wants everything in one place.
 - **Domain:** ❓ Custom domain (e.g. `hackaugie.com`) or a subdomain from the college?
 
-### Sign-up / application backend
+### Google Cloud architecture
 
-The timeline includes an applicant review step (Jan 31 – Feb 20), so organizers need to see applications, mark them accepted or rejected, and email decisions. Options:
+```
+GitHub (main / PRs)
+   │  GitHub Actions: build container → Artifact Registry → deploy
+   ▼                 (keyless auth via Workload Identity Federation)
+Cloud Run "web" ──── public site + POST /api/apply ──► Firestore (applications)
+   │                                                    ▲
+   │ custom domain (Firebase Hosting rewrite            │
+   │  or Cloud Run domain mapping)                       │
+Cloud Run "admin" ── behind Identity-Aware Proxy ───────┘
+                     (organizer Google accounts only)
+Secret Manager ───── email-provider API key
+Resend (or similar) ─ confirmation + decision emails
+```
 
-| Option | How it works | Pros | Cons |
-|---|---|---|---|
-| **A. Form tool** | Tally or Google Form linked from `/apply`; responses go to a Sheet; review happens in the Sheet | No code, live in a day | Off-brand, manual acceptance emails, data lives in Google |
-| **B. Site form + database** *(recommended)* | Form on `/apply` → serverless function → **Supabase** (Postgres). Organizers review in the Supabase table view or a small `/admin` page | Branded, validation, status tracking, can automate emails and later QR check-in | ~2–3 weeks of build, someone must own security and privacy |
-| **C. Option B plus "Log in with MLH"** | Applicants sign in with MyMLH, which pre-fills their profile and MLH consent | Fewer fields to type, MLH-native | Requires MLH OAuth app approval, adds a dependency |
+| Job | Service | Notes |
+|---|---|---|
+| Site + form API | **Cloud Run** (`web` service) | One container. Scales to zero when idle. Can raise the minimum to 1 instance during the application window to avoid slow first loads |
+| Organizer review | **Cloud Run** (`admin` service) + **Identity-Aware Proxy** | IAP limits access to a list of organizer Google accounts, so the app needs no login code. Lists, filters, sets accepted/rejected, exports CSV |
+| Database | **Firestore** *(recommended)* or **Cloud SQL PostgreSQL** | Firestore: no server to run, fine for hundreds of records. Cloud SQL: SQL queries, but about $10+/month and more setup. The credit covers either |
+| Container images | **Artifact Registry** | |
+| PR previews | Cloud Run **revision tags** | Each PR is deployed as a tagged revision that gets its own URL and no live traffic |
+| Custom domain + CDN | **Firebase Hosting** rewrite to Cloud Run *(recommended)*, or Cloud Run domain mapping | Firebase Hosting gives free SSL and caches the static pages |
+| Secrets | **Secret Manager** | Email API key; never committed to the repo |
+| Email | **Resend** (or Mailgun) | GCP has no built-in transactional email service |
+| Cost safety | **Billing budget alerts** | Alert well below the credit amount |
 
-The build window (Nov 8 – Jan 2) is long enough for Option B. Option A is a fallback if the team runs short on time; the site can link to a Tally form on Jan 3 and switch later.
+**Estimated cost:** about $0–15/month with Firestore, about $15–30/month with Cloud SQL or an always-on instance. The Google credit covers it.
+
+**Credit checklist:** Confirm the amount, the **expiry date** (it must cover the event in April and the cleanup in May), which billing account it's applied to (a club-owned one, with at least two organizers as owners), and whether it excludes any services.
+
+**Fallback:** If the form isn't ready by Jan 3, `/apply` can link to a Tally form temporarily.
+
+**Possible later addition:** "Log in with MLH" (MyMLH), so applicants sign in with their MLH account, which pre-fills their profile. It requires MLH OAuth approval.
 
 ### Other integrations
 - **Email updates:** Mailchimp / Buttondown free tier, or emails sent from the application database.
@@ -143,8 +165,10 @@ website/
 │   │   ├── schedule.json
 │   │   └── sponsors.json
 │   └── styles/
+├── admin/                # Cloud Run "admin" service (application review)
 ├── public/               # images, logo, favicon, sponsor logos
-├── .github/workflows/    # CI checks (build, lint); deploy is handled by the host
+├── Dockerfile            # container for the Cloud Run "web" service
+├── .github/workflows/    # CI checks, PR preview deploys, production deploy to Cloud Run
 ├── PLAN.md
 └── README.md             # how to run locally and how to edit content
 ```
@@ -162,29 +186,31 @@ website/
 
 | # | Target | Milestone | Contents |
 |---|---|---|---|
-| M0 | Nov 14 | Decisions | Hosting, sign-up approach, date/venue, logo |
-| M1 | Nov 22 | Skeleton | Astro project, layout, nav/footer, CI, preview deploys |
+| M0 | Nov 22 | Decisions + GCP setup | Credit applied to a club billing account, GCP project created, date/venue, logo |
+| M1 | Nov 29 | Skeleton | Astro project, layout, nav/footer, Dockerfile, CI, deploy to Cloud Run, PR previews |
 | M2 | Dec 13 | Content | Home, About, FAQ, Code of Conduct, Sponsors, Get Involved (placeholder copy is fine) |
-| M3 | Dec 27 | Application form | `/apply` form, database, confirmation email, organizer review view |
+| M3 | Dec 27 | Application form | `/apply` → Firestore, confirmation email, `admin` service behind IAP, CSV export |
 | M4 | **Jan 3** | **Launch** | Site live on the real domain, applications open |
 | M5 | Mar | Pre-event | Schedule, tracks/prizes, accepted-hacker info page, Discord |
 | M6 | Apr 25 | Event & after | Live schedule, judging info, then winners/gallery and recap |
 
 ## 8. Open questions for the team
 
-1. **Hosting:** Vercel, Netlify or Cloudflare Pages? (Recommended: Vercel or Netlify.)
-2. **Sign-up approach:** Option A, B or C in §4? (Recommended: B.)
+1. **Google credit:** Amount, expiry date, which billing account it's on, and any excluded services.
+2. **Database:** Firestore (recommended) or Cloud SQL PostgreSQL?
 3. **Application vs. registration:** The timeline has an applicant review step. Is that a real accept/reject decision, or just a check?
-4. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
-5. Age minimum (18+, or are minors allowed with a waiver?).
-6. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.
-7. Domain name, and who owns the DNS.
-8. Branding (scheduled for Oct 25 – Nov 7): logo, colors, fonts.
-9. Who reviews applications and needs access to applicant data?
-10. Do mentors, judges and volunteers sign up through the site, and from when? Mentor outreach starts Dec 6.
+4. **Email provider:** Resend (recommended) or another?
+5. **GCP owners:** Who besides the project lead gets owner access to the GCP project?
+6. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
+7. Age minimum (18+, or are minors allowed with a waiver?).
+8. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.
+9. Domain name, and who owns the DNS.
+10. Branding (scheduled for Oct 25 – Nov 7): logo, colors, fonts.
+11. Who reviews applications and needs access to applicant data?
+12. Do mentors, judges and volunteers sign up through the site, and from when? Mentor outreach starts Dec 6.
 
 ## 9. Next steps
 
-1. Answer questions 1–3 above.
-2. Scaffold the Astro project with CI (M1). This doesn't depend on the hosting choice.
-3. Connect the chosen host, then build content pages and the application form (M2–M3) ahead of the Jan 3 launch.
+1. Answer questions 1–5 above and create the GCP project on the club billing account.
+2. Scaffold the Astro project with a Dockerfile and CI (M1).
+3. Wire up GitHub Actions → Cloud Run deploys, then build content pages and the application form (M2–M3) ahead of the Jan 3 launch.

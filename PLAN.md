@@ -7,7 +7,7 @@ The site has two jobs:
 
 Everything below follows from those two jobs. Sections marked **❓ Decision** need input from the organizing team.
 
-## 0. Decisions so far (updated 2026-11-17)
+## 0. Decisions so far (updated 2026-11-18)
 
 | Topic | Decision |
 |---|---|
@@ -21,6 +21,7 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | Email | **Resend** free tier (3,000/month, 100/day), sending from the club domain. Decision emails go out in daily batches |
 | Team inbox | **Cloudflare Email Routing** (free): `hello@` etc. forward to organizers' inboxes; replies sent as `hello@` through Gmail "Send mail as" using Resend SMTP |
 | Domain / DNS | Registered at or moved to **Cloudflare** (needed for Email Routing). Name ❓ |
+| Frontend framework | **Depends on the design team's vision:** Astro + React components, or Next.js. Both use TypeScript, React and Tailwind (see §4a) |
 | Repo/org admin | The project lead controls the GitHub org |
 
 ### Key dates (from the HackAugie 2027 Timeline spreadsheet; weeks start on Sunday)
@@ -110,7 +111,7 @@ Open to other schools, no cap, no waitlist (decided). ❓ **Decision:** Is there
 
 ### Recommendation
 
-- **Site:** [Astro](https://astro.build) with the Node adapter. Content pages are pre-built as plain HTML; only the form endpoint and `/admin` run server code. Content lives in Markdown (FAQ, schedule, about), so non-developers on the team can edit it through GitHub's web editor.
+- **Site:** TypeScript + React components, using either **Astro** or **Next.js** depending on the design team's vision (see §4a). Either way, it runs as a container on Cloud Run, and content (FAQ, schedule, sponsors) lives in Markdown/JSON files that non-developers can edit through GitHub's web editor.
 - **Styling:** Tailwind CSS, or plain CSS with a small set of design tokens (colors, fonts) using Augustana-adjacent branding.
 - **Domain:** ❓ Custom domain (e.g. `hackaugie.com`) or a subdomain from the college?
 
@@ -134,12 +135,12 @@ Resend (or similar) ─ confirmation + decision emails
 |---|---|---|
 | Site + form API | **Cloud Run** (`web` service) | One container. Scales to zero when idle. Can raise the minimum to 1 instance during the application window to avoid slow first loads |
 | Organizer review | **Cloud Run** (`admin` service) + **Identity-Aware Proxy** | IAP limits access to a list of organizer Google accounts, so the app needs no login code. Lists, filters, sets accepted/rejected, exports CSV |
-| Database | **Cloud SQL for PostgreSQL** | Smallest instance with automated backups and deletion protection. Cloud Run connects through its built-in Cloud SQL connection; no IP allowlists. See §4a |
+| Database | **Cloud SQL for PostgreSQL** | Smallest instance with automated backups and deletion protection. Cloud Run connects through its built-in Cloud SQL connection; no IP allowlists. See §4b |
 | Container images | **Artifact Registry** | |
 | PR previews | Cloud Run **revision tags** | Each PR is deployed as a tagged revision that gets its own URL and no live traffic |
 | Custom domain + CDN | **Firebase Hosting** rewrite to Cloud Run *(recommended)*, or Cloud Run domain mapping | Firebase Hosting gives free SSL and caches the static pages |
 | Secrets | **Secret Manager** | Email API key; never committed to the repo |
-| Email | **Resend** (decided), sending from the club's own domain | GCP has no built-in transactional email service. See §4b |
+| Email | **Resend** (decided), sending from the club's own domain | GCP has no built-in transactional email service. See §4c |
 | Cost safety | **Billing budget alerts** | Alert well below the credit amount |
 
 **Estimated cost:** about $15–30/month, most of it the Cloud SQL instance, which runs around the clock. The Google credit covers it. Stop or delete the instance after the May cleanup so it doesn't keep using credit.
@@ -152,9 +153,31 @@ Resend (or similar) ─ confirmation + decision emails
 
 **Possible later addition:** "Log in with MLH" (MyMLH), so applicants sign in with their MLH account, which pre-fills their profile. It requires MLH OAuth approval.
 
-### 4a. Database details (Cloud SQL for PostgreSQL)
+### 4a. Frontend framework: decided by the design team
 
-- **Why PostgreSQL over MySQL:** both work on Cloud SQL. Postgres has better support for constraints, enums and JSON, and Astro/Node libraries default to it.
+The design team's vision for the site decides between two frameworks. Everything else in this plan (GCP, Cloud Run, Cloud SQL, Drizzle, Resend, Cloudflare, the IAP-protected admin) is the same either way.
+
+| | **Option 1: Astro + React components** | **Option 2: Next.js** |
+|---|---|---|
+| Choose it when the design is… | Rich but **self-contained**: an animated or 3D hero, scroll-triggered section reveals, animated SVG/Lottie, page transitions | **One connected experience**: a single 3D scene or scroll story spanning the whole page, elements morphing between sections, shared animation state |
+| How the visuals are built | Static HTML pages; the animated parts are React components (GSAP, Motion, React Three Fiber, Lottie). Page transitions use Astro's built-in View Transitions | The whole page is React, so any component can coordinate with any other |
+| Phone performance | Better: only the animated parts load JavaScript | Needs care: more JavaScript ships by default |
+| Later app features (applicant sign-in, RSVP, check-in) | Possible, but awkward as they grow | Natural fit |
+| Familiarity for contributors | Less known | Most widely known React framework |
+
+**Default:** If the design team has no strong preference, or the site will also get app features (sign-in, RSVP, check-in), choose **Next.js**. If the design is mostly a fast, polished information site with a few animated showpieces, choose **Astro**.
+
+**How to decide:** The design team shares 2–3 reference sites and a rough sketch of the Home page. Web and design leads pick the framework together by **M0b (Nov 29)**. The skeleton (M1) starts after that.
+
+**Rules for visuals (either option):**
+- Respect `prefers-reduced-motion`: turn off or simplify animations for visitors who ask for less motion.
+- Performance budget: the Home page should score 90+ on Lighthouse mobile performance and become usable within about 3 seconds on a mid-range phone over 4G. Load heavy 3D or video only after the main content.
+- Every animation must leave the content readable and the "Apply" button usable, including with JavaScript turned off for content pages.
+- Provide a static fallback image for 3D/WebGL scenes on devices that can't run them.
+
+### 4b. Database details (Cloud SQL for PostgreSQL)
+
+- **Why PostgreSQL over MySQL:** both work on Cloud SQL. Postgres has better support for constraints, enums and JSON, and Node libraries default to it.
 - **Instance:** the smallest shared-core instance is enough for hundreds of applications. Turn on automated daily backups, point-in-time recovery and deletion protection.
 - **Connecting from Cloud Run:** use the built-in Cloud SQL connection (Unix socket) and keep the database password in Secret Manager. IAM database login is possible later.
 - **Connection limits:** small instances allow few connections. Cap Cloud Run at about 5 instances and give each a pool of 2–5 connections.
@@ -188,7 +211,7 @@ Resend (or similar) ─ confirmation + decision emails
 
 A small `email_log` table records each confirmation or decision email sent, so nobody gets emailed twice.
 
-### 4b. Email
+### 4c. Email
 
 Two separate needs:
 
@@ -196,7 +219,7 @@ Two separate needs:
 
 | Provider | Free tier | Paid | Notes |
 |---|---|---|---|
-| **Resend** *(chosen)* | 3,000/month, **100/day** | ~$20/month | Simple API, good Node/Astro support, easy domain setup |
+| **Resend** *(chosen)* | 3,000/month, **100/day** | ~$20/month | Simple API, good Node/TypeScript support, easy domain setup |
 | Postmark | 100/month (testing) | ~$15/month | Best deliverability; account approval required |
 | Brevo | 300/day | Paid plans | Also does newsletters |
 | Mailgun | ~100/day | Paid plans | Mature, more complex |
@@ -222,7 +245,7 @@ The 100/day limit matters on decision day. The admin app sends decisions in batc
 ```
 website/
 ├── src/
-│   ├── pages/            # one file per route (index.astro, faq.astro, …)
+│   ├── pages/ or app/    # one file per route (Astro: src/pages, Next.js: src/app)
 │   ├── layouts/          # shared page shell (nav, footer, <head>)
 │   ├── components/       # Hero, FAQItem, ScheduleTable, SponsorGrid, …
 │   ├── content/          # Markdown/JSON that organizers edit
@@ -230,7 +253,7 @@ website/
 │   │   ├── schedule.json
 │   │   └── sponsors.json
 │   └── styles/
-├── admin/                # Cloud Run "admin" service (application review)
+├── admin/                # admin review area, deployed as the separate Cloud Run "admin" service
 ├── public/               # images, logo, favicon, sponsor logos
 ├── Dockerfile            # container for the Cloud Run "web" service
 ├── .github/workflows/    # CI checks, PR preview deploys, production deploy to Cloud Run
@@ -246,13 +269,15 @@ website/
 - Use beginner-friendly language. Many students have never been to a hackathon.
 - Meet WCAG AA contrast, use semantic HTML, label every form field, and make everything usable by keyboard.
 - Support a dark mode if the brand allows it.
+- Visual effects follow the rules in §4a (reduced motion, performance budget, fallbacks).
 
 ## 7. Milestones
 
 | # | Target | Milestone | Contents |
 |---|---|---|---|
 | M0 | Nov 22 | Decisions + GCP setup | GCP project + billing account created, credit requested, domain bought, date/venue, logo |
-| M1 | Nov 29 | Skeleton | Astro project, layout, nav/footer, Dockerfile, CI, deploy to Cloud Run, PR previews |
+| M0b | Nov 29 | Framework choice | Design team shares references + Home sketch; Astro or Next.js chosen (§4a) |
+| M1 | Dec 6 | Skeleton | Project in the chosen framework, layout, nav/footer, Dockerfile, CI, deploy to Cloud Run, PR previews |
 | M2 | Dec 13 | Content | Home, About, FAQ, Code of Conduct, Sponsors, Get Involved (placeholder copy is fine) |
 | M3 | Dec 27 | Application form | `/apply` → Cloud SQL, confirmation email, `admin` service behind IAP, CSV export |
 | M4 | **Jan 3** | **Launch** | Site live on the real domain, applications open |
@@ -264,19 +289,21 @@ website/
 1. **Google credit:** Request submitted? When is a decision expected? Once granted: amount, expiry date, billing account, excluded services.
 2. **GCP owners:** Who besides the project lead gets owner access to the GCP project?
 3. **Domain name:** Which domain, and who will register it? This blocks email setup.
-4. **Inbox addresses:** Which addresses (`hello@`, `sponsors@`, …) and which organizers each forwards to?
-5. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
-6. Age minimum (18+, or are minors allowed with a waiver?).
-7. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.
-8. Branding (scheduled for Oct 25 – Nov 7): logo, colors, fonts.
-9. Who reviews applications and needs access to applicant data?
-10. Do mentors, judges and volunteers sign up through the site, and from when? Mentor outreach starts Dec 6.
+4. **Frontend framework:** What is the design team's vision (reference sites, Home sketch)? This decides Astro or Next.js (§4a).
+5. **Inbox addresses:** Which addresses (`hello@`, `sponsors@`, …) and which organizers each forwards to?
+6. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
+7. Age minimum (18+, or are minors allowed with a waiver?).
+8. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.
+9. Branding (scheduled for Oct 25 – Nov 7): logo, colors, fonts.
+10. Who reviews applications and needs access to applicant data?
+11. Do mentors, judges and volunteers sign up through the site, and from when? Mentor outreach starts Dec 6.
 
 ## 9. Next steps
 
 1. Create the GCP project and billing account (see §10), request the credit, and pick a domain.
-2. Scaffold the Astro project with a Dockerfile and CI (M1).
-3. Wire up GitHub Actions → Cloud Run deploys, then build content pages and the application form (M2–M3) ahead of the Jan 3 launch.
+2. Design team shares references and a Home sketch; choose Astro or Next.js (M0b).
+3. Scaffold the project in the chosen framework with a Dockerfile and CI (M1).
+4. Wire up GitHub Actions → Cloud Run deploys, then build content pages and the application form (M2–M3) ahead of the Jan 3 launch.
 
 ## 10. GCP project setup checklist
 

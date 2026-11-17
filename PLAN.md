@@ -14,7 +14,7 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | Eligibility | Open to students from other schools, not only Augustana |
 | Capacity | No cap and no waitlist |
 | MLH | MLH member event. The MLH Code of Conduct, MLH data-sharing checkboxes and MLH trust badge are required |
-| Cloud | **Google Cloud (GCP)**, funded by a dedicated credit grant from Google |
+| Cloud | **Google Cloud (GCP)**. A credit grant from Google is **being requested** (not yet received). The GCP project is not created yet |
 | Hosting | **Cloud Run** runs the site and its server code (see §4) |
 | Sign-up | A form on the site that writes to a GCP database (see §4) |
 | Database | **Cloud SQL for PostgreSQL** (SQL) |
@@ -36,7 +36,7 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | **Week of Apr 25, 2027** | **Event day** (exact date TBD) |
 | May | Sponsor thank-you, recap post/video, debrief |
 
-The "Applicant review" step means sign-up is an **application** that organizers accept or reject, not first-come registration. The site needs to support review status and acceptance emails.
+The "Applicant review" step means sign-up is an **application** that organizers accept or reject, not first-come registration. **Confirmed:** organizers accept or reject each applicant, and the site sends acceptance and rejection emails.
 
 ---
 
@@ -136,12 +136,14 @@ Resend (or similar) ─ confirmation + decision emails
 | PR previews | Cloud Run **revision tags** | Each PR is deployed as a tagged revision that gets its own URL and no live traffic |
 | Custom domain + CDN | **Firebase Hosting** rewrite to Cloud Run *(recommended)*, or Cloud Run domain mapping | Firebase Hosting gives free SSL and caches the static pages |
 | Secrets | **Secret Manager** | Email API key; never committed to the repo |
-| Email | **Resend** (or Mailgun) | GCP has no built-in transactional email service |
+| Email | **Resend** *(recommended)*, sending from the club's own domain | GCP has no built-in transactional email service. See §4b |
 | Cost safety | **Billing budget alerts** | Alert well below the credit amount |
 
 **Estimated cost:** about $15–30/month, most of it the Cloud SQL instance, which runs around the clock. The Google credit covers it. Stop or delete the instance after the May cleanup so it doesn't keep using credit.
 
-**Credit checklist:** Confirm the amount, the **expiry date** (it must cover the event in April and the cleanup in May), which billing account it's applied to (a club-owned one, with at least two organizers as owners), and whether it excludes any services.
+**Until the credit arrives:** build and test locally (Postgres in Docker) and on Cloud Run's free tier. Create the Cloud SQL instance only once the credit is applied, or at the start of M3 at the latest; without credit it costs about $15–30/month. If the credit is denied, either pay that from the club budget or switch the database to Firestore (free tier).
+
+**Credit checklist (once granted):** Confirm the amount, the **expiry date** (it must cover the event in April and the cleanup in May), which billing account it's applied to (a club-owned one, with at least two organizers as owners), and whether it excludes any services.
 
 **Fallback:** If the form isn't ready by Jan 3, `/apply` can link to a Tally form temporarily.
 
@@ -183,6 +185,29 @@ Resend (or similar) ─ confirmation + decision emails
 
 A small `email_log` table records each confirmation or decision email sent, so nobody gets emailed twice.
 
+### 4b. Email
+
+Two separate needs:
+
+**1. Automated emails from the site** (application received, accepted, rejected, reminders)
+
+| Provider | Free tier | Paid | Notes |
+|---|---|---|---|
+| **Resend** *(recommended)* | 3,000/month, **100/day** | ~$20/month | Simple API, good Node/Astro support, easy domain setup |
+| Postmark | 100/month (testing) | ~$15/month | Best deliverability; account approval required |
+| Brevo | 300/day | Paid plans | Also does newsletters |
+| Mailgun | ~100/day | Paid plans | Mature, more complex |
+| Amazon SES | Pay per use (~$0.10/1,000) | — | Cheapest, but it's AWS |
+
+The 100/day limit matters on decision day. Either pay for one month of Resend around Feb 20, or send decisions in batches over several days. The `email_log` table makes batching safe.
+
+**2. A team inbox** (e.g. `hello@` / `team@` on the domain, for sponsors and questions)
+
+- **Cloudflare Email Routing** or **ImprovMX**: free forwarding to organizers' existing inboxes.
+- **Zoho Mail** (free plan for a few users) or **Google Workspace** (~$7/user/month): a real shared mailbox.
+
+**Domain setup:** Send automated mail from a subdomain (e.g. `mail.hackaugie.<tld>`) with `noreply@` as the sender and `hello@` as the reply-to. Add SPF, DKIM and DMARC DNS records, which the provider gives you; university mail filters are strict without them. Register the domain at Cloudflare Registrar or Porkbun (about $10–15/year for `.com`).
+
 ### Other integrations
 - **Email updates:** Mailchimp / Buttondown free tier, or emails sent from the application database.
 - **Calendar:** "Add to calendar" `.ics` link on Home and on the /apply/thanks page.
@@ -223,7 +248,7 @@ website/
 
 | # | Target | Milestone | Contents |
 |---|---|---|---|
-| M0 | Nov 22 | Decisions + GCP setup | Credit applied to a club billing account, GCP project created, date/venue, logo |
+| M0 | Nov 22 | Decisions + GCP setup | GCP project + billing account created, credit requested, domain bought, date/venue, logo |
 | M1 | Nov 29 | Skeleton | Astro project, layout, nav/footer, Dockerfile, CI, deploy to Cloud Run, PR previews |
 | M2 | Dec 13 | Content | Home, About, FAQ, Code of Conduct, Sponsors, Get Involved (placeholder copy is fine) |
 | M3 | Dec 27 | Application form | `/apply` → Cloud SQL, confirmation email, `admin` service behind IAP, CSV export |
@@ -233,20 +258,28 @@ website/
 
 ## 8. Open questions for the team
 
-1. **Google credit:** Amount, expiry date, which billing account it's on, and any excluded services.
-3. **Application vs. registration:** The timeline has an applicant review step. Is that a real accept/reject decision, or just a check?
-4. **Email provider:** Resend (recommended) or another?
-5. **GCP owners:** Who besides the project lead gets owner access to the GCP project?
-6. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
-7. Age minimum (18+, or are minors allowed with a waiver?).
-8. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.
-9. Domain name, and who owns the DNS.
-10. Branding (scheduled for Oct 25 – Nov 7): logo, colors, fonts.
-11. Who reviews applications and needs access to applicant data?
-12. Do mentors, judges and volunteers sign up through the site, and from when? Mentor outreach starts Dec 6.
+1. **Google credit:** Request submitted? When is a decision expected? Once granted: amount, expiry date, billing account, excluded services.
+2. **GCP owners:** Who besides the project lead gets owner access to the GCP project?
+3. **Domain name:** Which domain, and who will register it? This blocks email setup.
+4. **Email provider:** Resend (recommended) or another? Team inbox: forwarding or real mailboxes?
+5. Exact event date, venue, and whether it's overnight. The timeline puts this decision at Nov 1–14.
+6. Age minimum (18+, or are minors allowed with a waiver?).
+7. Travel reimbursement or buses for students from other schools? This affects the FAQ and possibly the form.
+8. Branding (scheduled for Oct 25 – Nov 7): logo, colors, fonts.
+9. Who reviews applications and needs access to applicant data?
+10. Do mentors, judges and volunteers sign up through the site, and from when? Mentor outreach starts Dec 6.
 
 ## 9. Next steps
 
-1. Answer questions 1–5 above and create the GCP project on the club billing account.
+1. Create the GCP project and billing account (see §10), request the credit, and pick a domain.
 2. Scaffold the Astro project with a Dockerfile and CI (M1).
 3. Wire up GitHub Actions → Cloud Run deploys, then build content pages and the application form (M2–M3) ahead of the Jan 3 launch.
+
+## 10. GCP project setup checklist
+
+1. Create a **club Google account** (not a personal one) to own the project.
+2. In the Google Cloud console, create a project (e.g. `hackaugie-2027`) and a **billing account**. A card is required even while usage is free; the credit is applied to this billing account once granted.
+3. Add at least one other organizer as **Owner**.
+4. Set a **budget alert** (e.g. $10) on the billing account.
+5. Pick a region: `us-central1` recommended.
+6. Share the **project ID** and region so the deploy workflow can be configured. The workflow setup (Artifact Registry, Workload Identity Federation, service accounts) can then be scripted.

@@ -7,7 +7,21 @@ The site has two jobs:
 
 Everything below follows from those two jobs. Sections marked **❓ Decision** need input from the organizing team.
 
-## 0. Decisions so far (updated 2026-11-17)
+## Stack at a glance
+
+| Layer | Choice |
+|---|---|
+| **Hosting / runtime** | **Google Cloud Run.** The whole site (pages + backend) runs as containers on Cloud Run: a public `web` service and a separate `admin` service |
+| **Language** | **TypeScript everywhere**: frontend and backend, on **Node.js** (LTS) |
+| **Frontend** | React components + Tailwind, inside **Astro** or **Next.js** (the design team decides, §4a) |
+| **Backend** | TypeScript server routes inside the same framework (Astro endpoints or Next.js route handlers), running in the same Cloud Run container. No separate API server (§4b) |
+| **Database** | **Cloud SQL for PostgreSQL**, accessed with **Drizzle ORM** |
+| **Email** | **Resend** (automated emails); **Cloudflare Email Routing** (team inbox) |
+| **Admin access** | Google **Identity-Aware Proxy** in front of the `admin` Cloud Run service |
+| **CI/CD** | **GitHub Actions** → Artifact Registry → Cloud Run |
+| **Domain / DNS** | **Cloudflare** |
+
+## 0. Decisions so far (updated 2026-11-22)
 
 | Topic | Decision |
 |---|---|
@@ -15,7 +29,8 @@ Everything below follows from those two jobs. Sections marked **❓ Decision** n
 | Capacity | No cap and no waitlist |
 | MLH | MLH member event. The MLH Code of Conduct, MLH data-sharing checkboxes and MLH trust badge are required |
 | Cloud | **Google Cloud (GCP)**. A credit grant from Google is **being requested** (not yet received). The GCP project is not created yet |
-| Hosting | **Cloud Run** runs the site and its server code (see §4) |
+| Hosting | **Google Cloud Run** runs everything: the public site, its backend and the admin app, as containers (see §4) |
+| Backend language | **TypeScript on Node.js**, the same language as the frontend (see §4b) |
 | Sign-up | A form on the site that writes to a GCP database (see §4) |
 | Database | **Cloud SQL for PostgreSQL** (SQL) |
 | Email | **Resend** free tier (3,000/month, 100/day), sending from the club domain. Decision emails go out in daily batches |
@@ -112,6 +127,8 @@ Open to other schools, no cap, no waitlist (decided). ❓ **Decision:** Is there
 ### Recommendation
 
 - **Site:** TypeScript + React components, using either **Astro** or **Next.js** depending on the design team's vision (see §4a). Either way, it runs as a container on Cloud Run, and content (FAQ, schedule, sponsors) lives in Markdown/JSON files that non-developers can edit through GitHub's web editor.
+- **Hosting:** **Google Cloud Run** for everything. No Vercel, Netlify, GitHub Pages or Firebase Functions.
+- **Backend:** TypeScript on Node.js, inside the same framework and container as the site (see §4b).
 - **Styling:** Tailwind CSS, or plain CSS with a small set of design tokens (colors, fonts) using Augustana-adjacent branding.
 - **Domain:** ❓ Custom domain (e.g. `hackaugie.com`) or a subdomain from the college?
 
@@ -128,19 +145,19 @@ Cloud Run "web" ──── public site + POST /api/apply ──► Cloud SQL P
 Cloud Run "admin" ── behind Identity-Aware Proxy ──────────┘
                      (organizer Google accounts only)
 Secret Manager ───── email-provider API key
-Resend (or similar) ─ confirmation + decision emails
+Resend ───────────── confirmation + decision emails
 ```
 
 | Job | Service | Notes |
 |---|---|---|
 | Site + form API | **Cloud Run** (`web` service) | One container. Scales to zero when idle. Can raise the minimum to 1 instance during the application window to avoid slow first loads |
 | Organizer review | **Cloud Run** (`admin` service) + **Identity-Aware Proxy** | IAP limits access to a list of organizer Google accounts, so the app needs no login code. Lists, filters, sets accepted/rejected, exports CSV |
-| Database | **Cloud SQL for PostgreSQL** | Smallest instance with automated backups and deletion protection. Cloud Run connects through its built-in Cloud SQL connection; no IP allowlists. See §4b |
+| Database | **Cloud SQL for PostgreSQL** | Smallest instance with automated backups and deletion protection. Cloud Run connects through its built-in Cloud SQL connection; no IP allowlists. See §4c |
 | Container images | **Artifact Registry** | |
 | PR previews | Cloud Run **revision tags** | Each PR is deployed as a tagged revision that gets its own URL and no live traffic |
 | Custom domain + CDN | **Firebase Hosting** rewrite to Cloud Run *(recommended)*, or Cloud Run domain mapping | Firebase Hosting gives free SSL and caches the static pages |
 | Secrets | **Secret Manager** | Email API key; never committed to the repo |
-| Email | **Resend** (decided), sending from the club's own domain | GCP has no built-in transactional email service. See §4c |
+| Email | **Resend** (decided), sending from the club's own domain | GCP has no built-in transactional email service. See §4d |
 | Cost safety | **Billing budget alerts** | Alert well below the credit amount |
 
 **Estimated cost:** about $15–30/month, most of it the Cloud SQL instance, which runs around the clock. The Google credit covers it. Stop or delete the instance after the May cleanup so it doesn't keep using credit.
@@ -175,7 +192,38 @@ The design team's vision for the site decides between two frameworks. Everything
 - Every animation must leave the content readable and the "Apply" button usable, including with JavaScript turned off for content pages.
 - Provide a static fallback image for 3D/WebGL scenes on devices that can't run them.
 
-### 4b. Database details (Cloud SQL for PostgreSQL)
+### 4b. Backend (TypeScript on Node.js)
+
+The backend is written in **TypeScript** and runs on **Node.js** (current LTS) inside the Cloud Run containers. It's the same language as the frontend, so anyone on the web team can work on either side, and types are shared between the form and the database.
+
+**Where it lives:** in the same project as the pages, not in a separate API server.
+- **Astro:** server endpoints in `src/pages/api/*.ts`, using the Node adapter.
+- **Next.js:** route handlers in `src/app/api/*/route.ts` and server actions.
+
+| Concern | Tool |
+|---|---|
+| Database access + migrations | **Drizzle ORM** (`drizzle-kit` for migrations) with the `pg` driver |
+| Input validation | **Zod**: one schema validates the form in the browser and again on the server |
+| Email | **Resend** Node SDK, with email templates written as React components (**React Email**) |
+| Spam protection | Cloudflare **Turnstile** (free) on the application form, plus per-IP rate limiting |
+| Secrets | Read from environment variables, which Cloud Run fills from **Secret Manager** |
+| Logging | Structured JSON logs to stdout, which **Cloud Logging** collects automatically |
+| Tests | **Vitest** for unit tests; **Playwright** for end-to-end tests of the application flow |
+
+**Main backend routes (first version)**
+
+| Route | Service | Does |
+|---|---|---|
+| `POST /api/apply` | `web` | Validates the application, saves it, sends the "application received" email |
+| `GET /api/health` | `web`, `admin` | Health check for Cloud Run |
+| `GET /admin/applications` | `admin` | List and filter applications |
+| `POST /admin/applications/:id/decision` | `admin` | Set accepted or rejected, records the reviewer from IAP |
+| `POST /admin/emails/send-decisions` | `admin` | Sends pending decision emails, up to 100/day (Resend free tier) |
+| `GET /admin/export.csv` | `admin` | CSV export, including the MLH data-sharing export |
+
+**Why not a separate backend** (e.g. Python/FastAPI, Go or a standalone Express API): it would mean a second language, a second service to deploy and duplicated validation, for a backend that is a handful of routes. If something heavy is needed later, it can be added as its own Cloud Run service without changing the rest.
+
+### 4c. Database details (Cloud SQL for PostgreSQL)
 
 - **Why PostgreSQL over MySQL:** both work on Cloud SQL. Postgres has better support for constraints, enums and JSON, and Node libraries default to it.
 - **Instance:** the smallest shared-core instance is enough for hundreds of applications. Turn on automated daily backups, point-in-time recovery and deletion protection.
@@ -211,7 +259,7 @@ The design team's vision for the site decides between two frameworks. Everything
 
 A small `email_log` table records each confirmation or decision email sent, so nobody gets emailed twice.
 
-### 4c. Email
+### 4d. Email
 
 Two separate needs:
 
@@ -248,6 +296,8 @@ website/
 │   ├── pages/ or app/    # one file per route (Astro: src/pages, Next.js: src/app)
 │   ├── layouts/          # shared page shell (nav, footer, <head>)
 │   ├── components/       # Hero, FAQItem, ScheduleTable, SponsorGrid, …
+│   ├── (api routes)      # backend: src/pages/api (Astro) or src/app/api (Next.js)
+│   ├── server/           # backend logic: db/ (Drizzle schema + queries), email/, validation/
 │   ├── content/          # Markdown/JSON that organizers edit
 │   │   ├── faq.md
 │   │   ├── schedule.json
